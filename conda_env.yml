@@ -1,0 +1,17 @@
+name : qrt_env
+channels : 
+ - defaults
+dependencies :
+  - python = 3.12
+  - pip
+  - pandas
+  - numpy
+  - seaborn
+  - matplotlib
+  - scikit-learn
+  - lightgbm
+  - xgboost
+  - ipykernel
+  - pip :
+    - statsmodels
+    - category_encoders
