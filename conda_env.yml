@@ -12,6 +12,9 @@ dependencies :
   - lightgbm
   - xgboost
   - ipykernel
+  - plotly
+  - nbformat>=4.2.0
   - pip :
     - statsmodels
     - category_encoders
+    - gradio
