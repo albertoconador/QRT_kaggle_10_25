@@ -71,7 +71,7 @@ features = features + [ f'ALLOCATIONS_AVERAGE_PERF_{i}' for i in [3,5,10,15,20]]
 # ==========================
 # BOUCLE DE VALIDATION CROISÉE
 # ==========================
-for date in tqdm(X_train['TS'].unique()[:3]):
+for date in tqdm(X_train['TS'].unique()[:]):
     X_train_date = X_train[X_train['TS'] == date]
     y_train_date = y_train.loc[X_train_date.index]
 
@@ -88,8 +88,6 @@ for date in tqdm(X_train['TS'].unique()[:3]):
         random_state=0,
         shuffle=True
     ).split(train_alloc)
-
-    best_mean = 0
 
     def objective(trial):
         # === Hyperparamètres à explorer ===
@@ -159,12 +157,7 @@ for date in tqdm(X_train['TS'].unique()[:3]):
         l = (mean - std)
 
         # print(f'Accuracy: {mean:.2f}% [{l:.2f} ; {u:.2f}] (+- {std:.2f})')
-
-        if mean > best_mean:
-            best_mean = mean
-            # print(f"New best mean accuracy: {best_mean:.2f}%")
-            plot_scores_xgb[date] = (mean, std)
-
+        trial.set_user_attr("std", std)
         return mean
 
 
@@ -172,8 +165,19 @@ for date in tqdm(X_train['TS'].unique()[:3]):
     study = optuna.create_study(direction="minimize")
     study.optimize(objective, n_trials=50, show_progress_bar=False)
 
-    print("Best params:", study.best_params)
-    print("Best logloss:", study.best_value)
+    # Retrieve best results for this date
+    best_mean = study.best_value
+    best_params = study.best_params
+    best_std = study.best_trial.user_attrs.get("std", None)
+
+    print("Best params:", best_params)
+    print("Best mean accuracy (%):", best_mean)
+    if best_std is not None:
+        print("Best std (%):", best_std)
+
+    # Store for plotting
+    plot_scores_xgb[date] = (best_mean, best_std if best_std is not None else 0.0)
+
 
 # ==========================
 # plot scores xgboost

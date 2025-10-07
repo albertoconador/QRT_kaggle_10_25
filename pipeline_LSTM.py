@@ -2,11 +2,12 @@ import pandas as pd
 import numpy as np
 import random
 from keras.models import Sequential
-from keras.layers import LSTM, Dense, Input, Dropout
+from keras.layers import LSTM, Dense, Input, Dropout, TimeDistributed
 from keras.models import load_model
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import KFold
 from itertools import product
+import tensorflow as tf
 
 from keras.callbacks import TensorBoard
 import os
@@ -71,111 +72,116 @@ def import_and_prepoccess_data(path = 'data/'):
         'RET_features': RET_features,
         'SIGNED_VOLUME_features': SIGNED_VOLUME_features,
         'TURNOVER_features': TURNOVER_features,
+        'all_features': RET_features + SIGNED_VOLUME_features + TURNOVER_features + ['FAR'],
     }
 
 def build_lstm_model(input_shape, lstm_units=50):
     model = Sequential()
     model.add(Input(shape=input_shape))
-    model.add(LSTM(units=lstm_units, return_sequences=False))
-    model.add(Dropout(0.2))
-    # model.add(Dense(units=dense_units, activation='relu'))
-    model.add(Dense(units=1, activation='sigmoid'))  # Binary classification
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    model.add(LSTM(units=lstm_units, return_sequences=True))
+    model.add(Dropout(param_grid['dropout']))
+    model.add(TimeDistributed(Dense(units=1, activation='sigmoid')))  # Binary classification
+    model.compile(optimizer='adam', 
+              loss='binary_crossentropy', 
+              metrics=['accuracy', tf.keras.metrics.AUC(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()])
+
     return model
 
-# model = Sequential()
-# model.add(Input(shape=(1, X_local_train.shape[2])))  # Ajout de la couche Input
-# model.add(LSTM(units=n))
-# model.add(Dense(1))
-# model.compile(loss='mse', optimizer='adam')
-
-def optimize(data, allocation, n_splits=5):
-    param_grid = {
-        'units': [8, 16, 32],
-        'epochs': [10, 20, 30],
-        'batch_size': [16, 32, 64],
-        # 'dense_units': [8, 16, 32]
+param_grid = {
+        'units': 50,
+        'epochs': 20,
+        'batch_size': 16,
+        'dropout': 0.2
     }
 
-    n_iter = 10  # nombre de combinaisons à tester
+def optimize(data, allocations, n_splits=4):
 
-    all_combinations = list(product(
-        param_grid['units'], 
-        param_grid['epochs'], 
-        param_grid['batch_size']
-    ))
+    dates = data['X_train']['TS'].unique()
 
-    # tirage aléatoire
-    sampled_combinations = random.sample(all_combinations, n_iter)
+    scores = []
 
-    best_score = 0
-    best_model = None
-    best_params = None
-    train_idx = data['X_train'][data['X_train']['ALLOCATION'] == allocation].index
+    splits = KFold(n_splits=n_splits, random_state=0, shuffle=True).split(dates)
+    for i, (local_train_date_ids, local_test_date_ids) in enumerate(splits):
+        local_train_dates = dates[local_train_date_ids]
+        local_test_dates = dates[local_test_date_ids]
 
+        # Train 
+        local_train_mask = (
+            data['X_train']['ALLOCATION'].isin(allocations)
+            & data['X_train']['TS'].isin(local_train_dates)
+        )
 
-    # for units, epochs, batch_size, dense_units in product(param_grid['units'], param_grid['epochs'], param_grid['batch_size'], param_grid['dense_units']):
-    # for units, epochs, batch_size in product(param_grid['units'], param_grid['epochs'], param_grid['batch_size']):
-    for units, epochs, batch_size in sampled_combinations:
-        scores = []
-        splits = KFold(n_splits=n_splits, shuffle=True).split(train_idx)
-        for i, (local_train_idx, local_test_idx) in enumerate(splits):
-            dx,dy = data['X_train'].loc[local_train_idx,data['RET_features']].shape
+        X_local_train = (
+            data['X_train']
+            .loc[local_train_mask, data['all_features']]
+            .values
+            .reshape(-1, len(allocations), len(data['all_features']))
+        )
 
-            X_local_train = data['X_train'].loc[local_train_idx,data['RET_features']]
-            y_local_train = data['y_train'].loc[local_train_idx,'target']
-            X_local_test = data['X_train'].loc[local_test_idx,data['RET_features']]
-            y_local_test = data['y_train'].loc[local_test_idx,'target']
+        y_local_train_bin = (
+            (data['y_train'] > 0).astype(int)
+            .loc[local_train_mask, 'target']
+            .values
+            .reshape(-1, len(allocations), 1)
+        )
 
-            X_local_train_ret = data['X_train'].loc[local_train_idx,data['RET_features']].values.reshape((dx, dy, 1))
-            X_local_train_vol = data['X_train'].loc[local_train_idx,data['SIGNED_VOLUME_features']].values.reshape((dx, dy, 1))
-            X_local_train = np.concatenate((X_local_train_ret, X_local_train_vol), axis=2)
+        # Test
+        local_test_mask = (
+            (data['X_train']['ALLOCATION'].isin(allocations)) &
+            (data['X_train']['TS'].isin(local_test_dates))
+        )
 
-            X_local_test_ret = data['X_train'].loc[local_test_idx,data['RET_features']].values.reshape((X_local_test.shape[0], X_local_test.shape[1], 1))
-            X_local_test_vol = data['X_train'].loc[local_test_idx,data['SIGNED_VOLUME_features']].values.reshape((X_local_test.shape[0], X_local_test.shape[1], 1))
-            X_local_test = np.concatenate((X_local_test_ret, X_local_test_vol), axis=2)
-            
-            # model = build_lstm_model(input_shape=(X_local_train.shape[1],1), lstm_units=units, dense_units=dense_units)
-            model = build_lstm_model(input_shape=(X_local_train.shape[1],2), lstm_units=units)
-            
-            model.fit(
-                    X_local_train, y_local_train, 
-                    epochs=epochs, batch_size=batch_size, 
-                    validation_data=(X_local_test, y_local_test), 
-                    callbacks=[tensorboard_callback],
-                    verbose=0
-                )
-            y_local_pred = model.predict(X_local_test)
+        X_local_test = (
+            data['X_train']
+            .loc[local_test_mask, data['all_features']]
+            .values
+            .reshape(-1, len(allocations), len(data['all_features']))
+        )
+        y_local_test_bin = (
+            (data['y_train'] > 0).astype(int)
+            .loc[local_test_mask, 'target']
+            .values
+            .reshape(-1, len(allocations), 1)
+        )
 
-            
-            score = accuracy_score((y_local_test>0).astype(int),
-                        (y_local_pred>0).astype(int))
-            scores.append(score)
-        mean_score = np.mean(scores)
-        # print(f"units={units}, epochs={epochs}, batch_size={batch_size}, dense_units= {dense_units}=> Accuracy: {mean_score*100:.4f}%")
-        print(f"units={units}, epochs={epochs}, batch_size={batch_size} => Accuracy: {mean_score*100:.4f}%")
-        if mean_score > best_score:
-            best_score = mean_score
-            best_params = {'units': units, 'epochs': epochs, 'batch_size': batch_size} #, 'dense_units': dense_units}
-    
-    # Entraîne le meilleur modèle sur l'ensemble des données d'entraînement pour cette allocation
-    X_local_best_train = data['X_train'].loc[train_idx,data['RET_features']]
-    y_local_best_train = data['y_train'].loc[train_idx,'target']
+        model = build_lstm_model(input_shape=(X_local_train.shape[1],X_local_train.shape[2]), lstm_units=param_grid['units'])
+        
+        model.fit(
+                X_local_train, y_local_train_bin, 
+                epochs=param_grid['epochs'], batch_size=param_grid['batch_size'], 
+                validation_data=(X_local_test, y_local_test_bin), 
+                callbacks=[tensorboard_callback],
+                verbose=0
+            )
+        y_local_pred = model.predict(X_local_test)
 
-    X_local_best_train = X_local_best_train.values.reshape((X_local_best_train.shape[0], X_local_best_train.shape[1], 1))
+        # print(y_local_pred)
 
-    best_model = build_lstm_model(input_shape=(X_local_best_train.shape[1], 1), lstm_units=best_params['units'])
-    best_model.fit(
-        X_local_best_train,
-        y_local_best_train,
-        epochs=best_params['epochs'],
-        batch_size=best_params['batch_size'],
-        callbacks=[tensorboard_callback],
-        verbose=0
-    )
+        y_true = y_local_test_bin.reshape(-1)  # (n_samples * nb_alloc,)
+        y_pred = (y_local_pred.reshape(-1) > 0.5).astype(int)
+        score = accuracy_score(y_true, y_pred)
+        scores.append(score)
+    # mean_score = np.mean(scores)
+   
+    # # Entraîne le meilleur modèle sur l'ensemble des données d'entraînement pour cette allocation
+    # X_local_best_train = data['X_train'].loc[train_idx,data['RET_features']]
+    # y_local_best_train = data['y_train'].loc[train_idx,'target']
 
-    print(f"\nMeilleurs paramètres : {best_params} avec une accuracy de {best_score*100:.4f}%")
-    return best_score, best_model, best_params
+    # X_local_best_train = X_local_best_train.values.reshape((X_local_best_train.shape[0], X_local_best_train.shape[1], 1))
+
+    # best_model = build_lstm_model(input_shape=(X_local_best_train.shape[1], 1), lstm_units=best_params['units'])
+    # best_model.fit(
+    #     X_local_best_train,
+    #     y_local_best_train,
+    #     epochs=best_params['epochs'],
+    #     batch_size=best_params['batch_size'],
+    #     callbacks=[tensorboard_callback],
+    #     verbose=0
+    # )
+
+    # print(f"\nMeilleurs paramètres : {best_params} avec une accuracy de {best_score*100:.4f}%")
+    # return best_score, best_model, best_params
+    return np.mean(scores), model, param_grid
 
 
 def save_model(model, path):
@@ -190,19 +196,21 @@ def load_model(path):
 def main():
     data = import_and_prepoccess_data()
     
-    best_models = {}
-    best_scores = {}
-    best_params = {}
-
-    for allocation in data['X_train']['ALLOCATION'].unique()[:10]:
+    # best_models = {}
+    # best_scores = {}
+    # best_params = {}
     
-        best_score, best_model, best_params = optimize(data=data, 
-                                                    allocation=allocation)
-        best_models[allocation] = best_model
-        best_scores[allocation] = best_score
-        best_params[allocation] = best_params
-        print(f"Allocation: {allocation}, Best Accuracy: {best_score*100:.4f}%, Best Params: {best_params}")
-        save_model(best_model, f'models/lstm_model_allocation_{allocation}.keras')    
+    nb_alloc = -1
+    allocations = data['X_train']['ALLOCATION'].unique()[:nb_alloc]
+
+    best_score, best_model, best_params = optimize(data=data, 
+                                                allocations=allocations)
+    # best_models[allocation] = best_model
+    # best_scores[allocation] = best_score
+    # best_params[allocation] = best_params
+    # print(f"Allocation: {allocation}, Best Accuracy: {best_score*100:.4f}%, Best Params: {best_params}")
+    # save_model(best_model, f'models/lstm_model_allocation_{allocation}.keras')
+    print(f"For N°Allocations: {nb_alloc}, Best Accuracy: {best_score*100:.4f}%, Best Params: {best_params}")
 
 if __name__ == "__main__":
     main()
