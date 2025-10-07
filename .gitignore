@@ -1,12 +1,13 @@
 # Byte-compiled / optimized / DLL files
 
-
+.vscode/
 .venv/
 data/
 __pycache__/
 *.py[codz]
 *$py.class
-
+catboost_info/
+logs/
 # C extensions
 *.so
 
