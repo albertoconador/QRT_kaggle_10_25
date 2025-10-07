@@ -7,6 +7,7 @@ from keras.models import load_model
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import KFold
 from itertools import product
+from sklearn.preprocessing import StandardScaler
 import tensorflow as tf
 
 from keras.callbacks import TensorBoard
@@ -47,6 +48,12 @@ def import_and_prepoccess_data(path = 'data/'):
     SIGNED_VOLUME_features = [f'SIGNED_VOLUME_{i}' for i in range(1,21)]
     TURNOVER_features = ['AVG_DAILY_TURNOVER']
 
+    cols_to_scale = RET_features + SIGNED_VOLUME_features
+    scaler = StandardScaler()
+    X_train[cols_to_scale] = scaler.fit_transform(X_train[cols_to_scale])
+    X_test[cols_to_scale] = scaler.transform(X_test[cols_to_scale])
+
+
     RET_features_subset = []
     for i in [3,5,10,15,20]:
         RET_features_subset.append(f'RET_{i}')
@@ -59,9 +66,9 @@ def import_and_prepoccess_data(path = 'data/'):
     X_train['ret_ts'] = X_train[RET_features].values.tolist()
     X_train['vol_ts'] = X_train[SIGNED_VOLUME_features].values.tolist()
     X_train['FAR'] = X_train.apply(FAR, axis=1)
-    X_test['ret_ts'] = X_test[RET_features].values.tolist()
-    X_test['vol_ts'] = X_test[SIGNED_VOLUME_features].values.tolist()
-    X_test['FAR'] = X_test.apply(FAR, axis=1)
+    # X_test['ret_ts'] = X_test[RET_features].values.tolist()
+    # X_test['vol_ts'] = X_test[SIGNED_VOLUME_features].values.tolist()
+    # X_test['FAR'] = X_test.apply(FAR, axis=1)
     
 
     return {
@@ -72,7 +79,7 @@ def import_and_prepoccess_data(path = 'data/'):
         'RET_features': RET_features,
         'SIGNED_VOLUME_features': SIGNED_VOLUME_features,
         'TURNOVER_features': TURNOVER_features,
-        'all_features': RET_features + SIGNED_VOLUME_features + TURNOVER_features + ['FAR'],
+        'all_features': RET_features + SIGNED_VOLUME_features + TURNOVER_features # + ['FAR'],
     }
 
 def build_lstm_model(input_shape, lstm_units=50):
