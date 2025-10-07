@@ -91,10 +91,11 @@ param_grid = {
         'units': 50,
         'epochs': 20,
         'batch_size': 16,
-        'dropout': 0.2
+        'dropout': 0.2,
+        'n_splits': 10
     }
 
-def optimize(data, allocations, n_splits=4):
+def optimize(data, allocations, n_splits=10):
 
     dates = data['X_train']['TS'].unique()
 
@@ -204,7 +205,8 @@ def main():
     allocations = data['X_train']['ALLOCATION'].unique()[:nb_alloc]
 
     best_score, best_model, best_params = optimize(data=data, 
-                                                allocations=allocations)
+                                                allocations=allocations,
+                                                n_splits=param_grid['n_splits'])
     # best_models[allocation] = best_model
     # best_scores[allocation] = best_score
     # best_params[allocation] = best_params
