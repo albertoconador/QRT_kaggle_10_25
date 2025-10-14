@@ -38,11 +38,22 @@ NUM_BOOST_ROUND = 500
 
 path = 'data/'
 
+
 X_train = pd.read_csv(path + 'X_train.csv',index_col='ROW_ID')
 # X_test = pd.read_csv(path + 'X_test.csv',index_col='ROW_ID')
 
 y_train = pd.read_csv(path + 'y_train.csv',index_col='ROW_ID')
 # sample_submission = pd.read_csv(path + 'sample_submission.csv',index_col='ROW_ID')
+RET_features = [f'RET_{i}' for i in range(1,20)]
+SIGNED_VOLUME_features = [f'SIGNED_VOLUME_{i}' for i in range(1,20)]
+
+def standardize(x, axis=-1, keepdims=True):
+    mean = x.mean(axis=axis, keepdims=keepdims)
+    std = x.std(axis=axis, keepdims=keepdims)
+    return (x - mean) / std
+
+X_train[RET_features] = standardize(X_train[RET_features].values)
+X_train[SIGNED_VOLUME_features] = standardize(X_train[SIGNED_VOLUME_features].values)
 
 def FAR(row):
     ret = np.array(row['ret_ts'])
@@ -51,8 +62,6 @@ def FAR(row):
 
 
 
-RET_features = [f'RET_{i}' for i in range(1,20)]
-SIGNED_VOLUME_features = [f'SIGNED_VOLUME_{i}' for i in range(1,20)]
 TURNOVER_features = ['AVG_DAILY_TURNOVER']
 for i in [3,5,10,15,20]:
     X_train[ f'AVERAGE_PERF_{i}'] = X_train[RET_features[:i]].mean(1)
