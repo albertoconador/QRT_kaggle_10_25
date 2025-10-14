@@ -1,8 +1,10 @@
-name : qrt_env
-channels : 
- - defaults
-dependencies :
-  - python = 3.12
+name: qrt_env
+channels:
+  - defaults
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.12
   - pip
   - pandas
   - numpy
@@ -14,7 +16,9 @@ dependencies :
   - ipykernel
   - plotly
   - nbformat>=4.2.0
-  - pip :
-    - statsmodels
-    - category_encoders
-    - gradio
+  - optuna
+  - pip:
+      - statsmodels
+      - category_encoders
+      - gradio
+      - torch        # note: will likely be installed via pip or conda+channel below
